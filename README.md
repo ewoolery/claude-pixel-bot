@@ -97,8 +97,11 @@ Then merge the `hooks` block from [`settings-snippet.json`](settings-snippet.jso
 into `~/.claude/settings.json` (don't overwrite the file — add the key), and
 confirm both events registered with `/hooks` inside Claude Code.
 
-**End-to-end check:** ask Claude to run a command it needs approval for and
-watch the robot wave; it should drop its arm when the turn ends.
+**End-to-end check:** ask Claude to run a command it needs approval for,
+then **switch away from the terminal** and leave the prompt pending — the
+robot should wave; approve it and it drops its arm when the turn ends. See
+[When the robot actually waves](#when-the-robot-actually-waves) for why the
+"switch away" step matters.
 
 ## Configuration
 
@@ -111,6 +114,7 @@ All via environment variables (read by `pixel_bot.py`):
 | `PIXEL_BOT_PIDFILE` | `/tmp/claude-pixel-bot.pid` | Tracks the player process. |
 | `PIXEL_BOT_FRAMES` | `frames.json` beside the script | Animation to play. |
 | `PIXEL_BOT_DIR` | `$HOME/.claude/pixel-bot` | Checkout location (used by the wrapper). |
+| `PIXEL_BOT_LOG` | *(unset)* | If set to a file path, the wrapper logs every invocation (timestamp, arg, raw hook JSON). See troubleshooting below. |
 
 ## Changing the character
 
@@ -132,6 +136,60 @@ code 2 tells Claude *not* to stop and to continue the conversation — so a
 propagated failure from an unreachable display could keep a session alive
 indefinitely. The wrapper swallows all errors and exits 0 by design. Don't
 "fix" that.
+
+## When the robot actually waves
+
+Notes from wiring this up and testing it against the simulator. The plumbing
+(hook → `pixel_bot.py` → HTTP → display) is rock-solid; the subtlety is
+entirely about **when Claude Code decides to emit a `Notification` event.**
+
+- **`Stop` fires every turn, reliably.** The "return to the clock when the turn
+  ends" half is dependable — confirmed via `PIXEL_BOT_LOG` (a `clear` line at
+  every turn end).
+
+- **Notifications are "come back, I need you" nudges — they do NOT fire while
+  you're watching.** Claude Code emits a `Notification` when it needs you *and
+  believes you've stepped away*. So you cannot catch the wave in the act while
+  sitting at the terminal approving prompts — that's by design, not a bug. In
+  normal use it fires exactly when you want: you've tabbed away, Claude hits a
+  prompt or goes idle, the robot waves to pull you back.
+
+- **`permission_prompt` is the reliable trigger** (this is the method the
+  Claude Code docs give). To see it on demand: be in the default **"ask"**
+  permission mode, have Claude run a command that needs approval, then **leave
+  the prompt pending and switch to another app.** The wave fires once you're
+  away; approve it and `Stop` clears it.
+
+- **`idle_prompt` is undocumented and unreliable.** There's no specified idle
+  timeout or trigger condition; in testing it did not emit even after 90 s
+  unfocused. Don't depend on it — `permission_prompt` is the workhorse.
+
+- **Auto-approve modes produce no prompts.** In `acceptEdits` /
+  `bypassPermissions` mode, commands run without asking, so `permission_prompt`
+  never fires. Use the default "ask" mode when you want the notifier active.
+
+- **Terminal focus reporting matters.** Notifications hinge on Claude Code
+  knowing the window is unfocused. Terminal.app and iTerm2 report focus
+  reliably; the **VS Code integrated terminal often does not**, which can
+  suppress notifications entirely. If nothing ever fires, try a real terminal.
+
+- **Settings hot-reload.** Editing `~/.claude/settings.json` mid-session was
+  picked up here without a restart (the `Stop` hook began firing immediately).
+  If yours doesn't, restart Claude Code or start a new session.
+
+### Troubleshooting with `PIXEL_BOT_LOG`
+
+Add `PIXEL_BOT_LOG=$HOME/.claude/pixel-bot-hook.log` in front of the hook
+commands in `~/.claude/settings.json`, then tail the file:
+
+```bash
+tail -f ~/.claude/pixel-bot-hook.log
+```
+
+Each line is `timestamp  arg=<attention|clear>  <raw hook JSON>`. If you see
+`clear` lines but never `attention`, the hooks are wired correctly and the
+issue is upstream — Claude Code isn't emitting the `Notification` (usually mode
+or focus, per the notes above).
 
 ## Known limitations
 
