@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""
+pixel_bot.py — stream a waving-robot animation to a Ulanzi TC001 running
+AWTRIX 3, so the display waves when Claude Code needs attention.
+
+Stdlib only — no third-party packages, no venv. The animation is read from
+frames.json (baked by tools/generate_frames.py).
+
+Commands:
+    pixel_bot.py attention   start the wave (spawns a detached player loop)
+    pixel_bot.py clear       stop the wave and hand the screen back to the clock
+    pixel_bot.py test        check reachability, then wave for a few seconds
+    pixel_bot.py play        internal: the foreground frame-push loop
+
+Config via environment (all optional except the IP):
+    AWTRIX_IP            device IP on your LAN            (required in practice)
+    PIXEL_BOT_TIMEOUT    per-request timeout, seconds     (default 2)
+    PIXEL_BOT_PIDFILE    player pidfile path              (default /tmp/claude-pixel-bot.pid)
+    PIXEL_BOT_FRAMES     path to frames.json              (default: alongside this file)
+
+The full-width robot is host-driven: AWTRIX plays animated GIFs only in an
+8x8 icon slot, so a 32x8 character has to be streamed frame by frame. This
+is a LAN HTTP loop — sub-second, cheap, self-healing (if the player dies the
+notification's duration lapses and the clock returns on its own).
+
+NOTE ON HOOK EXIT CODES: the hook wrapper (hooks/pixel-bot.sh) always exits 0.
+On Claude Code's Stop event, exit code 2 tells Claude *not* to stop and to
+continue the conversation — an unreachable display must never be able to
+trap a session. This script never influences that; the wrapper guarantees it.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+import urllib.request
+
+IP       = os.environ.get("AWTRIX_IP", "192.168.1.50")
+TIMEOUT  = float(os.environ.get("PIXEL_BOT_TIMEOUT", "2"))
+PIDFILE  = os.environ.get("PIXEL_BOT_PIDFILE", "/tmp/claude-pixel-bot.pid")
+FRAMES   = os.environ.get(
+    "PIXEL_BOT_FRAMES",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames.json"),
+)
+BASE = "http://%s/api" % IP
+
+
+# ─── HTTP ────────────────────────────────────────────────────────────────────
+def post(endpoint, payload=None):
+    """POST JSON to an AWTRIX endpoint. Best-effort: never raises."""
+    url = "%s/%s" % (BASE, endpoint)
+    data = json.dumps(payload).encode() if payload is not None else b""
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT):
+            return True
+    except Exception:
+        return False
+
+
+def get(endpoint):
+    try:
+        with urllib.request.urlopen("%s/%s" % (BASE, endpoint), timeout=TIMEOUT) as r:
+            return r.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
+# ─── frames ──────────────────────────────────────────────────────────────────
+def load_frames():
+    with open(FRAMES) as f:
+        meta = json.load(f)
+    draw_frames = [
+        [{"dp": [x, y, c]} for x, y, c in frame]
+        for frame in meta["frames"]
+    ]
+    return draw_frames, meta.get("frame_ms", 150) / 1000.0
+
+
+def frame_payload(draw, wakeup):
+    # No hold: if the player stops pushing, the notification's duration lapses
+    # and the clock returns on its own. duration comfortably exceeds the
+    # inter-frame gap so the animation never flickers back to the clock.
+    return {
+        "draw": draw,
+        "duration": 2,
+        "noScroll": True,
+        "stack": False,
+        "wakeup": wakeup,
+    }
+
+
+# ─── pidfile helpers ─────────────────────────────────────────────────────────
+def read_pid():
+    try:
+        with open(PIDFILE) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+# ─── commands ────────────────────────────────────────────────────────────────
+def cmd_play():
+    """Foreground loop: push frames until SIGTERM/SIGINT."""
+    running = {"go": True}
+
+    def stop(_sig, _frm):
+        running["go"] = False
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    frames, dwell = load_frames()
+    i = 0
+    while running["go"]:
+        post("notify", frame_payload(frames[i % len(frames)], wakeup=(i == 0)))
+        i += 1
+        time.sleep(dwell)
+    # Leave the screen clean if we were asked to stop.
+    post("notify/dismiss")
+
+
+def cmd_attention():
+    """Start the wave if it isn't already running (idempotent)."""
+    if alive(read_pid()):
+        return
+    devnull = open(os.devnull, "wb")
+    proc = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "play"],
+        stdin=subprocess.DEVNULL, stdout=devnull, stderr=devnull,
+        start_new_session=True,   # survive the hook process exiting
+    )
+    try:
+        with open(PIDFILE, "w") as f:
+            f.write(str(proc.pid))
+    except Exception:
+        pass
+
+
+def cmd_clear():
+    """Stop the wave and return the screen to the clock."""
+    pid = read_pid()
+    if alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        for _ in range(20):            # up to ~1s for it to exit
+            if not alive(pid):
+                break
+            time.sleep(0.05)
+    try:
+        os.remove(PIDFILE)
+    except OSError:
+        pass
+    # Belt and suspenders: cut any lingering notification immediately.
+    post("notify/dismiss")
+
+
+def cmd_test():
+    print("Pinging AWTRIX at %s ..." % IP)
+    stats = get("stats")
+    if stats is None:
+        print("FAILED — no response from %s." % IP, file=sys.stderr)
+        print("Check: device on the same LAN, AWTRIX flashed, AWTRIX_IP correct.",
+              file=sys.stderr)
+        return 1
+    print("OK — reachable:", stats[:200])
+    print("Waving for ~4s ...")
+    frames, dwell = load_frames()
+    end = time.time() + 4
+    i = 0
+    while time.time() < end:
+        post("notify", frame_payload(frames[i % len(frames)], wakeup=(i == 0)))
+        i += 1
+        time.sleep(dwell)
+    post("notify/dismiss")
+    print("Done.")
+    return 0
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "play":
+        cmd_play()
+    elif cmd == "attention":
+        cmd_attention()
+    elif cmd in ("clear", "stop"):
+        cmd_clear()
+    elif cmd == "test":
+        return cmd_test()
+    else:
+        print("usage: pixel_bot.py <attention|clear|test>", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

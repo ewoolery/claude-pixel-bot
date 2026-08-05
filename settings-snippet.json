@@ -1,0 +1,34 @@
+{
+  "//": "Merge the 'hooks' key below into ~/.claude/settings.json.",
+  "//2": "If that file already exists, DO NOT overwrite it — add this key.",
+  "//3": "Set AWTRIX_IP + PIXEL_BOT_DIR in hooks/pixel-bot.sh, or export them.",
+
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt|agent_needs_input",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/pixel-bot.sh attention",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/pixel-bot.sh clear",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
