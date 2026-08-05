@@ -21,8 +21,18 @@ export AWTRIX_IP="${AWTRIX_IP:-192.168.1.50}"      # <-- set your device IP
 PY="$(command -v python3 || command -v python || true)"
 [[ -z "$PY" ]] && exit 0   # no interpreter — fail silent, never block a turn
 
-# Drain any hook JSON on stdin so the caller never blocks (we don't need it).
-[[ -t 0 ]] || timeout 1 cat >/dev/null 2>&1 || true
+# Read hook JSON from stdin (optional) so we can log it; never block.
+hook_json=""
+[[ -t 0 ]] || hook_json="$(timeout 1 cat 2>/dev/null || true)"
+
+# Opt-in diagnostics: set PIXEL_BOT_LOG to a file to record every invocation
+# (timestamp, arg, and the raw hook event JSON). Handy for verifying which
+# Claude Code events actually reach the hook.
+if [[ -n "${PIXEL_BOT_LOG:-}" ]]; then
+  printf '%s  arg=%-9s  %s\n' \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "${1:-}" "$hook_json" \
+    >>"$PIXEL_BOT_LOG" 2>/dev/null || true
+fi
 
 "$PY" "$BOT_DIR/pixel_bot.py" "${1:-}" >/dev/null 2>&1 || true
 
