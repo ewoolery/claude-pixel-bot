@@ -48,6 +48,27 @@ Claude Code event ──> pixel-bot.sh ──> pixel_bot.py ──HTTP──> Ul
 | `assets/robot-v2.*` | The original pixel-art reference. |
 | `preview/robot-wave.gif` | The animation preview above. |
 
+## Prototype in the browser (no hardware)
+
+`tools/mock_awtrix.py` is a browser stand-in for the TC001: it implements the
+same AWTRIX HTTP endpoints and renders a 32×8 LED matrix as a web page.
+`pixel_bot.py` drives it **unchanged** — the only thing hardware changes is
+`AWTRIX_IP`.
+
+```bash
+# terminal 1 — start the simulator, then open http://localhost:7777
+python3 tools/mock_awtrix.py
+
+# terminal 2 — drive it exactly like the hooks will
+AWTRIX_IP=localhost:7777 python3 pixel_bot.py test        # wave for ~4s
+AWTRIX_IP=localhost:7777 python3 pixel_bot.py attention   # start waving
+AWTRIX_IP=localhost:7777 python3 pixel_bot.py clear       # back to the clock
+```
+
+You can even wire your live Claude Code hooks to the simulator: set
+`AWTRIX_IP=localhost:7777` in `hooks/pixel-bot.sh` and watch the browser react
+to real permission/idle notifications before the device ever arrives.
+
 ## Setup
 
 Assumes a TC001 already flashed with AWTRIX 3 and joined to your Wi-Fi, with a
