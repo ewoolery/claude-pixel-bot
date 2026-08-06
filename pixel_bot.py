@@ -252,11 +252,23 @@ def cmd_tool_cancel():
     post("notify/dismiss")
 
 
+def _sweep_strays():
+    """Best-effort: kill any armed/tool-armed/play loops a pidfile lost track of
+    (rapid re-arms can orphan an earlier process). Keeps clear bulletproof."""
+    for verb in ("play", "armed", "tool-armed"):
+        try:
+            subprocess.run(["pkill", "-f", "pixel_bot.py %s" % verb],
+                           capture_output=True, timeout=3)
+        except Exception:
+            pass
+
+
 def cmd_clear():
     """Stop everything — any pending countdown and any active wave — to the clock."""
     kill_pidfile(TIMER_PIDFILE)   # cancel a pending idle countdown
     kill_pidfile(TOOL_PIDFILE)    # cancel a pending tool countdown
     kill_pidfile(PIDFILE)         # stop an active wave
+    _sweep_strays()               # mop up any orphaned loops not in a pidfile
     # Belt and suspenders: cut any lingering notification immediately.
     post("notify/dismiss")
 

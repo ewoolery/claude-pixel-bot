@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent: refresh the calendar tile every 60s.
+
+  Install:
+    cp extras/com.ewoolery.pixel-bot.calendar.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ewoolery.pixel-bot.calendar.plist
+  (older macOS: launchctl load ~/Library/LaunchAgents/com.ewoolery.pixel-bot.calendar.plist)
+
+  Uninstall:
+    launchctl bootout gui/$(id -u)/com.ewoolery.pixel-bot.calendar
+
+  CALENDAR PERMISSION (TCC): the first time this agent reads Calendar while you're
+  logged in, macOS should prompt to allow calendar access — click Allow. If no
+  prompt appears and the tile never shows real events, the background job wasn't
+  granted access; check /tmp/pixel-cal.err and see extras/README (TCC notes).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ewoolery.pixel-bot.calendar</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/elijahwoolery/.claude/pixel-bot/extras/calendar_tile.py</string>
+        <string>update</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>AWTRIX_IP</key>
+        <string>192.168.7.144</string>
+        <key>CAL_WARN_MINUTES</key>
+        <string>2</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/pixel-cal.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/pixel-cal.err</string>
+</dict>
+</plist>
