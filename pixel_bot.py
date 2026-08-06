@@ -14,16 +14,27 @@ Commands:
     pixel_bot.py play        internal: the foreground frame-push loop
     pixel_bot.py armed       internal: idle countdown then wave
 
-Idle-notifier wiring (events that reliably fire, unlike Notification):
-    Stop             -> arm      (Claude finished; you might have stepped away)
-    UserPromptSubmit -> clear    (you're back; cancel countdown / stop waving)
-So the robot waves only if you don't reply within PIXEL_BOT_IDLE_DELAY seconds.
+Two ways to wire it up (both use events that fire reliably, unlike Notification):
+
+  A) Approval detector (v1.2 — waves only when Claude needs your input):
+       PreToolUse       -> tool-arm     (a tool started)
+       PostToolUse      -> tool-cancel  (it finished → wasn't blocked)
+       UserPromptSubmit -> clear
+       Stop             -> clear
+     A tool that doesn't finish within PIXEL_BOT_TOOL_DELAY is assumed blocked on
+     your approval, so the robot waves. Plain end-of-turn messages never wave.
+
+  B) Idle notifier (simpler; waves after any quiet spell):
+       Stop             -> arm
+       UserPromptSubmit -> clear
+     Waves if you don't reply within PIXEL_BOT_IDLE_DELAY seconds.
 
 Config via environment (all optional except the IP):
     AWTRIX_IP            device IP on your LAN            (required in practice)
     PIXEL_BOT_TIMEOUT    per-request timeout, seconds     (default 2)
     PIXEL_BOT_PIDFILE    player pidfile path              (default /tmp/claude-pixel-bot.pid)
-    PIXEL_BOT_IDLE_DELAY seconds idle before an armed wave fires (default 30)
+    PIXEL_BOT_IDLE_DELAY seconds idle before an armed (idle) wave fires (default 30)
+    PIXEL_BOT_TOOL_DELAY seconds a tool may run before we assume it's blocked (default 5)
     PIXEL_BOT_FRAMES     path to frames.json              (default: alongside this file)
 
 The full-width robot is host-driven: AWTRIX plays animated GIFs only in an
@@ -48,7 +59,9 @@ IP       = os.environ.get("AWTRIX_IP", "192.168.1.50")
 TIMEOUT  = float(os.environ.get("PIXEL_BOT_TIMEOUT", "2"))
 PIDFILE  = os.environ.get("PIXEL_BOT_PIDFILE", "/tmp/claude-pixel-bot.pid")
 TIMER_PIDFILE = PIDFILE + ".armed"                               # idle-countdown process
+TOOL_PIDFILE  = PIDFILE + ".tool"                                # tool-blocked-countdown process
 IDLE_DELAY = float(os.environ.get("PIXEL_BOT_IDLE_DELAY", "30"))  # seconds before an armed idle wave fires
+TOOL_DELAY = float(os.environ.get("PIXEL_BOT_TOOL_DELAY", "5"))   # seconds a tool may run before we assume it's blocked on approval
 FRAMES   = os.environ.get(
     "PIXEL_BOT_FRAMES",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames.json"),
@@ -193,13 +206,24 @@ def cmd_play():
     _wave_until(_install_stop_flag())
 
 
-def cmd_armed():
-    """Idle countdown, then wave. Killable at any stage (sleeping or waving)."""
+def _countdown_then_wave(delay):
+    """Wait `delay` seconds; if not killed first, wave. Killable at any stage."""
     running = _install_stop_flag()
-    if _sleep_until(running, IDLE_DELAY):   # survived the full idle delay → user is away
+    if _sleep_until(running, delay):   # survived the full delay → fire
         _wave_until(running)
     else:
-        post("notify/dismiss")              # cancelled during countdown; nothing was shown
+        post("notify/dismiss")         # cancelled during countdown; nothing was shown
+
+
+def cmd_armed():
+    """Idle countdown then wave (Stop-based idle notifier)."""
+    _countdown_then_wave(IDLE_DELAY)
+
+
+def cmd_tool_armed():
+    """Tool countdown then wave — fires if a tool doesn't finish within TOOL_DELAY,
+    which in 'ask' mode means Claude is blocked waiting for your approval."""
+    _countdown_then_wave(TOOL_DELAY)
 
 
 def cmd_attention():
@@ -215,9 +239,23 @@ def cmd_arm():
     spawn_detached("armed", TIMER_PIDFILE)
 
 
+def cmd_tool_arm():
+    """(Re)start the tool countdown on PreToolUse. Reset each time a tool starts."""
+    kill_pidfile(TOOL_PIDFILE)
+    spawn_detached("tool-armed", TOOL_PIDFILE)
+
+
+def cmd_tool_cancel():
+    """PostToolUse: the tool finished, so it wasn't blocked — cancel its countdown
+    and cut any wave it may have started."""
+    kill_pidfile(TOOL_PIDFILE)
+    post("notify/dismiss")
+
+
 def cmd_clear():
-    """Stop everything — pending countdown and active wave — back to the clock."""
+    """Stop everything — any pending countdown and any active wave — to the clock."""
     kill_pidfile(TIMER_PIDFILE)   # cancel a pending idle countdown
+    kill_pidfile(TOOL_PIDFILE)    # cancel a pending tool countdown
     kill_pidfile(PIDFILE)         # stop an active wave
     # Belt and suspenders: cut any lingering notification immediately.
     post("notify/dismiss")
@@ -251,16 +289,23 @@ def main():
         cmd_play()
     elif cmd == "armed":
         cmd_armed()
+    elif cmd == "tool-armed":
+        cmd_tool_armed()
     elif cmd == "attention":
         cmd_attention()
     elif cmd == "arm":
         cmd_arm()
+    elif cmd == "tool-arm":
+        cmd_tool_arm()
+    elif cmd == "tool-cancel":
+        cmd_tool_cancel()
     elif cmd in ("clear", "stop"):
         cmd_clear()
     elif cmd == "test":
         return cmd_test()
     else:
-        print("usage: pixel_bot.py <attention|arm|clear|test>", file=sys.stderr)
+        print("usage: pixel_bot.py <attention|arm|tool-arm|tool-cancel|clear|test>",
+              file=sys.stderr)
         return 2
     return 0
 

@@ -17,21 +17,33 @@ It runs on a **Ulanzi TC001** (32×8 pixel clock) flashed with
 
 ## How it works
 
-**Idle-notifier design.** The obvious wiring — `Notification` hook → wave — turned
-out unreliable: in practice Claude Code often does **not** invoke the `Notification`
-hook even when it shows its own OS notification (see
-[When the robot actually waves](#when-the-robot-actually-waves)). So instead this
-uses two events that fire dependably:
+**The problem.** The obvious wiring — `Notification` hook → wave — turned out
+unreliable: in practice Claude Code often does **not** invoke the `Notification`
+hook even when it shows its own OS notification, for either permission *or* idle
+events (see [When the robot actually waves](#when-the-robot-actually-waves)). So we
+infer "Claude needs you" from events that *do* fire reliably.
 
-- **`Stop`** (Claude finished a turn, now waiting on you) → `pixel-bot.sh arm`,
-  which starts a quiet **idle countdown** (`PIXEL_BOT_IDLE_DELAY`, default 30s).
-- **`UserPromptSubmit`** (you sent a prompt — you're back) → `pixel-bot.sh clear`,
-  which cancels the countdown and stops any wave.
-- If you *don't* reply before the countdown elapses, the robot **waves**. Reply and
-  it clears. Net effect: it waves only when you've actually stepped away — and never
-  flashes after every turn.
-- **`Notification`** → `pixel-bot.sh attention` (immediate wave) is kept too, as a
-  bonus for the cases where it *does* fire. Nothing depends on it.
+**Approval detector (default, v1.2).** A permission prompt only ever happens because
+Claude tried to use a tool and got blocked waiting for your yes. So:
+
+- **`PreToolUse`** (a tool is about to run) → `tool-arm`: start a short timer
+  (`PIXEL_BOT_TOOL_DELAY`, default 5s).
+- **`PostToolUse`** (the tool finished) → `tool-cancel`: the tool wasn't blocked,
+  cancel the timer.
+- If the timer **elapses** (the tool has been pending too long) → the tool is stuck
+  on your approval → the robot **waves**.
+- **`UserPromptSubmit`** / **`Stop`** → `clear`.
+
+The payoff: it waves **only when Claude is blocked waiting for your input** — never
+on a plain end-of-turn message. Requires the default **"ask"** permission mode to
+produce prompts. One caveat: a genuinely slow auto-approved tool (a big build/test)
+can trip the timer too, since "blocked" and "just slow" look alike; tune
+`PIXEL_BOT_TOOL_DELAY` up if that bites. `Notification` → `attention` is kept as a
+bonus for when it happens to fire.
+
+**Idle notifier (simpler alternative).** If you'd rather nudge whenever you go quiet:
+`Stop` → `arm` (starts a `PIXEL_BOT_IDLE_DELAY` countdown) and `UserPromptSubmit` →
+`clear`. Waves after any lull, not just approvals.
 
 The robot is the **full 32×8 screen**, so it can't be a device-side GIF —
 AWTRIX only animates GIFs in an 8×8 icon slot. Instead the animation is
@@ -43,9 +55,11 @@ on its own.
 
 ```
 Claude Code event ──> pixel-bot.sh ──> pixel_bot.py ──HTTP──> Ulanzi TC001
-   Stop              -> arm         idle countdown ──(elapses)──> waves
-   UserPromptSubmit  -> clear       kill timer/wave + dismiss ──> clock returns
-   Notification      -> attention   immediate wave (if it fires)
+   PreToolUse       -> tool-arm     tool countdown ──(elapses)──> waves (blocked!)
+   PostToolUse      -> tool-cancel  tool finished → cancel ──────> no wave
+   UserPromptSubmit -> clear        kill timer/wave + dismiss ───> clock returns
+   Stop             -> clear        cleanup at turn end
+   Notification     -> attention    immediate wave (if it fires)
 ```
 
 ## Layout
@@ -124,7 +138,8 @@ All via environment variables (read by `pixel_bot.py`):
 | `AWTRIX_IP` | `192.168.1.50` | Device IP. **Set this.** |
 | `PIXEL_BOT_TIMEOUT` | `2` | Per-request timeout, seconds. |
 | `PIXEL_BOT_PIDFILE` | `/tmp/claude-pixel-bot.pid` | Tracks the player process (the `.armed` sibling tracks the idle countdown). |
-| `PIXEL_BOT_IDLE_DELAY` | `30` | Seconds of idle after a turn before an armed wave fires. |
+| `PIXEL_BOT_IDLE_DELAY` | `30` | Idle-notifier: seconds of quiet after a turn before an armed wave fires. |
+| `PIXEL_BOT_TOOL_DELAY` | `5` | Approval detector: seconds a tool may run before it's assumed blocked on approval. |
 | `PIXEL_BOT_FRAMES` | `frames.json` beside the script | Animation to play. |
 | `PIXEL_BOT_DIR` | `$HOME/.claude/pixel-bot` | Checkout location (used by the wrapper). |
 | `PIXEL_BOT_LOG` | *(unset)* | If set to a file path, the wrapper logs every invocation (timestamp, arg, raw hook JSON). See troubleshooting below. |

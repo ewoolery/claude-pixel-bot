@@ -1,48 +1,46 @@
 {
-  "//": "Merge the 'hooks' key below into ~/.claude/settings.json.",
-  "//2": "If that file already exists, DO NOT overwrite it — add this key.",
-  "//3": "Set AWTRIX_IP + PIXEL_BOT_DIR in hooks/pixel-bot.sh, or export them.",
-  "//4": "IDLE-NOTIFIER DESIGN: Stop arms a countdown; UserPromptSubmit cancels it;",
-  "//5": "the robot waves only if you don't reply within PIXEL_BOT_IDLE_DELAY (30s).",
-  "//6": "These two events fire reliably; the Notification event often does NOT,",
-  "//7": "so it's kept as a bonus (immediate wave) but not depended on.",
+  "//": "Merge the 'hooks' key below into ~/.claude/settings.json (add the key; don't overwrite).",
+  "//2": "Set AWTRIX_IP + PIXEL_BOT_DIR in hooks/pixel-bot.sh, or export them.",
+  "//3": "APPROVAL DETECTOR (v1.2): waves only when Claude is blocked waiting on you.",
+  "//4": "PreToolUse arms a short timer; PostToolUse cancels it. A tool that doesn't",
+  "//5": "finish within PIXEL_BOT_TOOL_DELAY (5s) is assumed blocked on approval -> wave.",
+  "//6": "Plain end-of-turn messages never wave. Needs default 'ask' permission mode to",
+  "//7": "produce prompts. The Notification hook is kept as a bonus but often doesn't fire.",
+  "//8": "For the simpler idle notifier instead, use Stop->arm + UserPromptSubmit->clear.",
 
   "hooks": {
-    "Stop": [
+    "PreToolUse": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/pixel-bot.sh arm",
-            "async": true,
-            "timeout": 5
-          }
+          { "type": "command", "command": "PIXEL_BOT_TOOL_DELAY=5 $HOME/.claude/hooks/pixel-bot.sh tool-arm", "async": true, "timeout": 5 }
         ]
       }
     ],
-
+    "PostToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$HOME/.claude/hooks/pixel-bot.sh tool-cancel", "async": true, "timeout": 5 }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/pixel-bot.sh clear",
-            "async": true,
-            "timeout": 5
-          }
+          { "type": "command", "command": "$HOME/.claude/hooks/pixel-bot.sh clear", "async": true, "timeout": 5 }
         ]
       }
     ],
-
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$HOME/.claude/hooks/pixel-bot.sh clear", "async": true, "timeout": 5 }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/pixel-bot.sh attention",
-            "async": true,
-            "timeout": 5
-          }
+          { "type": "command", "command": "$HOME/.claude/hooks/pixel-bot.sh attention", "async": true, "timeout": 5 }
         ]
       }
     ]
