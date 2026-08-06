@@ -87,14 +87,10 @@ def _run_icalbuddy():
     return out.stdout
 
 
-def next_event(now=None):
-    """Parse icalBuddy output → (start_datetime, title) for the soonest upcoming
-    timed event today, or None. Robust to icalBuddy's date/time range format."""
+def _pick_next(raw, now=None):
+    """From icalBuddy output text, return (start_datetime, title) for the soonest
+    upcoming *timed* event (all-day events are skipped), or None."""
     now = now or datetime.now()
-    raw = _run_icalbuddy()
-    if not raw:
-        return None
-
     best = None
     for line in raw.splitlines():
         line = line.strip()
@@ -116,6 +112,15 @@ def next_event(now=None):
         if best is None or start < best[0]:
             best = (start, title or "(busy)")
     return best
+
+
+def next_event(now=None):
+    """Read the calendar and return the next timed event, or None. Returns None
+    for BOTH 'no access' and 'no events' — use cmd_update for the distinction."""
+    raw = _run_icalbuddy()
+    if raw is None:
+        return None
+    return _pick_next(raw, now)
 
 
 # ─── tile + alert ─────────────────────────────────────────────────────────────
@@ -191,14 +196,26 @@ def mark_alerted(key):
 
 
 # ─── commands ───────────────────────────────────────────────────────────────
+def _log(msg):
+    sys.stderr.write("calendar_tile: %s\n" % msg)
+
+
 def cmd_update():
-    ev = next_event()
+    raw = _run_icalbuddy()
+    if raw is None:
+        # No calendar access (or icalBuddy error). Leave the existing tile alone
+        # rather than wiping it on a transient/permission failure.
+        _log("no calendar access — leaving tile unchanged")
+        return 0
+    ev = _pick_next(raw)
     if not ev:
+        _log("calendar OK, no upcoming timed event — clearing tile")
         clear_tile()
         return 0
     start, title = ev
     mins = (start - datetime.now()).total_seconds() / 60.0
     show_tile(start, title, mins)
+    _log("next = %s %s (%.0f min)" % (start.strftime("%Y-%m-%d %H:%M"), title, mins))
     key = start.strftime("%Y%m%dT%H%M") + "|" + title
     if 0 <= mins <= WARN_MIN and not already_alerted(key):
         alert(start, title)
