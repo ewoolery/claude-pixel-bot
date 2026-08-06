@@ -2,15 +2,18 @@
   "//": "Merge the 'hooks' key below into ~/.claude/settings.json.",
   "//2": "If that file already exists, DO NOT overwrite it — add this key.",
   "//3": "Set AWTRIX_IP + PIXEL_BOT_DIR in hooks/pixel-bot.sh, or export them.",
+  "//4": "IDLE-NOTIFIER DESIGN: Stop arms a countdown; UserPromptSubmit cancels it;",
+  "//5": "the robot waves only if you don't reply within PIXEL_BOT_IDLE_DELAY (30s).",
+  "//6": "These two events fire reliably; the Notification event often does NOT,",
+  "//7": "so it's kept as a bonus (immediate wave) but not depended on.",
 
   "hooks": {
-    "Notification": [
+    "Stop": [
       {
-        "matcher": "permission_prompt|idle_prompt|agent_needs_input",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/pixel-bot.sh attention",
+            "command": "$HOME/.claude/hooks/pixel-bot.sh arm",
             "async": true,
             "timeout": 5
           }
@@ -18,12 +21,25 @@
       }
     ],
 
-    "Stop": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/pixel-bot.sh clear",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/pixel-bot.sh attention",
             "async": true,
             "timeout": 5
           }

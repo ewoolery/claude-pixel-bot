@@ -17,10 +17,21 @@ It runs on a **Ulanzi TC001** (32×8 pixel clock) flashed with
 
 ## How it works
 
-- **`Notification`** hook (matching `permission_prompt|idle_prompt|agent_needs_input`)
-  → runs `pixel-bot.sh attention`, which starts the wave.
-- **`Stop`** hook (fires at the end of every turn) → runs `pixel-bot.sh clear`,
-  which stops the wave and returns the screen to the clock.
+**Idle-notifier design.** The obvious wiring — `Notification` hook → wave — turned
+out unreliable: in practice Claude Code often does **not** invoke the `Notification`
+hook even when it shows its own OS notification (see
+[When the robot actually waves](#when-the-robot-actually-waves)). So instead this
+uses two events that fire dependably:
+
+- **`Stop`** (Claude finished a turn, now waiting on you) → `pixel-bot.sh arm`,
+  which starts a quiet **idle countdown** (`PIXEL_BOT_IDLE_DELAY`, default 30s).
+- **`UserPromptSubmit`** (you sent a prompt — you're back) → `pixel-bot.sh clear`,
+  which cancels the countdown and stops any wave.
+- If you *don't* reply before the countdown elapses, the robot **waves**. Reply and
+  it clears. Net effect: it waves only when you've actually stepped away — and never
+  flashes after every turn.
+- **`Notification`** → `pixel-bot.sh attention` (immediate wave) is kept too, as a
+  bonus for the cases where it *does* fire. Nothing depends on it.
 
 The robot is the **full 32×8 screen**, so it can't be a device-side GIF —
 AWTRIX only animates GIFs in an 8×8 icon slot. Instead the animation is
@@ -32,8 +43,9 @@ on its own.
 
 ```
 Claude Code event ──> pixel-bot.sh ──> pixel_bot.py ──HTTP──> Ulanzi TC001
-   Notification            attention        play loop            waves
-   Stop                    clear            SIGTERM + dismiss     clock returns
+   Stop              -> arm         idle countdown ──(elapses)──> waves
+   UserPromptSubmit  -> clear       kill timer/wave + dismiss ──> clock returns
+   Notification      -> attention   immediate wave (if it fires)
 ```
 
 ## Layout
@@ -111,7 +123,8 @@ All via environment variables (read by `pixel_bot.py`):
 | --- | --- | --- |
 | `AWTRIX_IP` | `192.168.1.50` | Device IP. **Set this.** |
 | `PIXEL_BOT_TIMEOUT` | `2` | Per-request timeout, seconds. |
-| `PIXEL_BOT_PIDFILE` | `/tmp/claude-pixel-bot.pid` | Tracks the player process. |
+| `PIXEL_BOT_PIDFILE` | `/tmp/claude-pixel-bot.pid` | Tracks the player process (the `.armed` sibling tracks the idle countdown). |
+| `PIXEL_BOT_IDLE_DELAY` | `30` | Seconds of idle after a turn before an armed wave fires. |
 | `PIXEL_BOT_FRAMES` | `frames.json` beside the script | Animation to play. |
 | `PIXEL_BOT_DIR` | `$HOME/.claude/pixel-bot` | Checkout location (used by the wrapper). |
 | `PIXEL_BOT_LOG` | *(unset)* | If set to a file path, the wrapper logs every invocation (timestamp, arg, raw hook JSON). See troubleshooting below. |
@@ -143,9 +156,15 @@ Notes from wiring this up and testing it against the simulator. The plumbing
 (hook → `pixel_bot.py` → HTTP → display) is rock-solid; the subtlety is
 entirely about **when Claude Code decides to emit a `Notification` event.**
 
-- **`Stop` fires every turn, reliably.** The "return to the clock when the turn
-  ends" half is dependable — confirmed via `PIXEL_BOT_LOG` (a `clear` line at
-  every turn end).
+- **The `Notification` hook never fired in practice.** Across many real events —
+  before and after a Claude Code restart, with and without a matcher — the
+  `Notification` hook was invoked **zero** times (verified via `PIXEL_BOT_LOG`),
+  even at the exact moment Claude Code showed its own macOS notification. The OS
+  notification and the `Notification` *hook* are decoupled here. This is why the
+  project pivoted to the **idle-notifier design** (Stop + UserPromptSubmit) above.
+
+- **`Stop` and `UserPromptSubmit` fire every time, reliably.** Both were confirmed
+  firing via `PIXEL_BOT_LOG`. The whole idle-notifier is built on these two.
 
 - **Notifications are "come back, I need you" nudges — they do NOT fire while
   you're watching.** Claude Code emits a `Notification` when it needs you *and

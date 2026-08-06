@@ -7,15 +7,23 @@ Stdlib only — no third-party packages, no venv. The animation is read from
 frames.json (baked by tools/generate_frames.py).
 
 Commands:
-    pixel_bot.py attention   start the wave (spawns a detached player loop)
-    pixel_bot.py clear       stop the wave and hand the screen back to the clock
+    pixel_bot.py attention   start the wave immediately (spawns a detached loop)
+    pixel_bot.py arm         start an idle countdown; wave only if not cancelled
+    pixel_bot.py clear       stop wave/countdown, hand the screen back to the clock
     pixel_bot.py test        check reachability, then wave for a few seconds
     pixel_bot.py play        internal: the foreground frame-push loop
+    pixel_bot.py armed       internal: idle countdown then wave
+
+Idle-notifier wiring (events that reliably fire, unlike Notification):
+    Stop             -> arm      (Claude finished; you might have stepped away)
+    UserPromptSubmit -> clear    (you're back; cancel countdown / stop waving)
+So the robot waves only if you don't reply within PIXEL_BOT_IDLE_DELAY seconds.
 
 Config via environment (all optional except the IP):
     AWTRIX_IP            device IP on your LAN            (required in practice)
     PIXEL_BOT_TIMEOUT    per-request timeout, seconds     (default 2)
     PIXEL_BOT_PIDFILE    player pidfile path              (default /tmp/claude-pixel-bot.pid)
+    PIXEL_BOT_IDLE_DELAY seconds idle before an armed wave fires (default 30)
     PIXEL_BOT_FRAMES     path to frames.json              (default: alongside this file)
 
 The full-width robot is host-driven: AWTRIX plays animated GIFs only in an
@@ -39,6 +47,8 @@ import urllib.request
 IP       = os.environ.get("AWTRIX_IP", "192.168.1.50")
 TIMEOUT  = float(os.environ.get("PIXEL_BOT_TIMEOUT", "2"))
 PIDFILE  = os.environ.get("PIXEL_BOT_PIDFILE", "/tmp/claude-pixel-bot.pid")
+TIMER_PIDFILE = PIDFILE + ".armed"                               # idle-countdown process
+IDLE_DELAY = float(os.environ.get("PIXEL_BOT_IDLE_DELAY", "30"))  # seconds before an armed idle wave fires
 FRAMES   = os.environ.get(
     "PIXEL_BOT_FRAMES",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames.json"),
@@ -95,9 +105,9 @@ def frame_payload(draw, wakeup):
 
 
 # ─── pidfile helpers ─────────────────────────────────────────────────────────
-def read_pid():
+def read_pid(path=PIDFILE):
     try:
-        with open(PIDFILE) as f:
+        with open(path) as f:
             return int(f.read().strip())
     except Exception:
         return None
@@ -113,47 +123,9 @@ def alive(pid):
         return False
 
 
-# ─── commands ────────────────────────────────────────────────────────────────
-def cmd_play():
-    """Foreground loop: push frames until SIGTERM/SIGINT."""
-    running = {"go": True}
-
-    def stop(_sig, _frm):
-        running["go"] = False
-
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
-
-    frames, dwell = load_frames()
-    i = 0
-    while running["go"]:
-        post("notify", frame_payload(frames[i % len(frames)], wakeup=(i == 0)))
-        i += 1
-        time.sleep(dwell)
-    # Leave the screen clean if we were asked to stop.
-    post("notify/dismiss")
-
-
-def cmd_attention():
-    """Start the wave if it isn't already running (idempotent)."""
-    if alive(read_pid()):
-        return
-    devnull = open(os.devnull, "wb")
-    proc = subprocess.Popen(
-        [sys.executable, os.path.abspath(__file__), "play"],
-        stdin=subprocess.DEVNULL, stdout=devnull, stderr=devnull,
-        start_new_session=True,   # survive the hook process exiting
-    )
-    try:
-        with open(PIDFILE, "w") as f:
-            f.write(str(proc.pid))
-    except Exception:
-        pass
-
-
-def cmd_clear():
-    """Stop the wave and return the screen to the clock."""
-    pid = read_pid()
+def kill_pidfile(path):
+    """SIGTERM the process a pidfile points to (if alive) and remove the file."""
+    pid = read_pid(path)
     if alive(pid):
         try:
             os.kill(pid, signal.SIGTERM)
@@ -164,9 +136,89 @@ def cmd_clear():
                 break
             time.sleep(0.05)
     try:
-        os.remove(PIDFILE)
+        os.remove(path)
     except OSError:
         pass
+
+
+def spawn_detached(arg, pidfile):
+    """Launch this script with `arg` as a detached background process."""
+    devnull = open(os.devnull, "wb")
+    proc = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), arg],
+        stdin=subprocess.DEVNULL, stdout=devnull, stderr=devnull,
+        start_new_session=True,   # survive the hook process exiting
+    )
+    try:
+        with open(pidfile, "w") as f:
+            f.write(str(proc.pid))
+    except Exception:
+        pass
+
+
+# ─── commands ────────────────────────────────────────────────────────────────
+def _install_stop_flag():
+    """Return a callable that reports whether SIGTERM/SIGINT has been received."""
+    state = {"go": True}
+
+    def _stop(_sig, _frm):
+        state["go"] = False
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+    return lambda: state["go"]
+
+
+def _wave_until(running):
+    """Push frames until `running()` goes False, then leave the screen clean."""
+    frames, dwell = load_frames()
+    i = 0
+    while running():
+        post("notify", frame_payload(frames[i % len(frames)], wakeup=(i == 0)))
+        i += 1
+        time.sleep(dwell)
+    post("notify/dismiss")
+
+
+def _sleep_until(running, seconds):
+    """Interruptible sleep; returns True if it slept the full time, False if stopped."""
+    end = time.time() + seconds
+    while running() and time.time() < end:
+        time.sleep(0.25)
+    return running()
+
+
+def cmd_play():
+    """Foreground loop: wave until SIGTERM/SIGINT."""
+    _wave_until(_install_stop_flag())
+
+
+def cmd_armed():
+    """Idle countdown, then wave. Killable at any stage (sleeping or waving)."""
+    running = _install_stop_flag()
+    if _sleep_until(running, IDLE_DELAY):   # survived the full idle delay → user is away
+        _wave_until(running)
+    else:
+        post("notify/dismiss")              # cancelled during countdown; nothing was shown
+
+
+def cmd_attention():
+    """Start the wave immediately if not already running (idempotent)."""
+    if alive(read_pid()):
+        return
+    spawn_detached("play", PIDFILE)
+
+
+def cmd_arm():
+    """(Re)start the idle countdown. Each call resets the timer to IDLE_DELAY."""
+    kill_pidfile(TIMER_PIDFILE)              # restart the countdown on every turn end
+    spawn_detached("armed", TIMER_PIDFILE)
+
+
+def cmd_clear():
+    """Stop everything — pending countdown and active wave — back to the clock."""
+    kill_pidfile(TIMER_PIDFILE)   # cancel a pending idle countdown
+    kill_pidfile(PIDFILE)         # stop an active wave
     # Belt and suspenders: cut any lingering notification immediately.
     post("notify/dismiss")
 
@@ -197,14 +249,18 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "play":
         cmd_play()
+    elif cmd == "armed":
+        cmd_armed()
     elif cmd == "attention":
         cmd_attention()
+    elif cmd == "arm":
+        cmd_arm()
     elif cmd in ("clear", "stop"):
         cmd_clear()
     elif cmd == "test":
         return cmd_test()
     else:
-        print("usage: pixel_bot.py <attention|clear|test>", file=sys.stderr)
+        print("usage: pixel_bot.py <attention|arm|clear|test>", file=sys.stderr)
         return 2
     return 0
 
