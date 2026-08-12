@@ -57,6 +57,17 @@ AWTRIX_IP=192.168.7.144 python3 ~/.pixel-bot/calendar_tile.py update
 AWTRIX_IP=192.168.7.144 python3 ~/.pixel-bot/calendar_tile.py clear
 ```
 
+## Control panel (web UI)
+
+**Run the panel** (serves the UI + proxies the device API), then open http://localhost:8080
+```bash
+AWTRIX_IP=192.168.7.144 python3 ~/.claude/pixel-bot/panel/awtrix_panel.py
+```
+Toggle pages (Time/Date/Temp/Humidity/Battery), set dwell/scroll/transition/brightness,
+watch the live screen mirror, wave the robot, send a message. Stop with `pkill -f awtrix_panel.py`.
+
+For 24/7 it runs on a Pi via `deploy/awtrix-panel.service` (see the Control panel section in the README).
+
 ## Simulator (no hardware)
 
 **Run the browser stand-in**, then open http://localhost:7777

@@ -73,6 +73,10 @@ Claude Code event ──> pixel-bot.sh ──> pixel_bot.py ──HTTP──> Ul
 | `tools/generate_frames.py` | Rebuilds `frames.json` + the preview GIF. Needs Pillow. |
 | `assets/robot-v2.*` | The original pixel-art reference. |
 | `preview/robot-wave.gif` | The animation preview above. |
+| `panel/awtrix_panel.py` | Control-panel server + `/api/*` proxy (stdlib only). |
+| `panel/index.html` | The control-panel web UI. |
+| `deploy/awtrix-panel.service` | systemd unit to run the panel 24/7 on a Pi. |
+| `extras/calendar_tile.py` | Next-meeting calendar tile (see `extras/`). |
 
 ## Prototype in the browser (no hardware)
 
@@ -224,6 +228,43 @@ Each line is `timestamp  arg=<attention|clear>  <raw hook JSON>`. If you see
 `clear` lines but never `attention`, the hooks are wired correctly and the
 issue is upstream — Claude Code isn't emitting the `Notification` (usually mode
 or focus, per the notes above).
+
+## Control panel (`panel/`)
+
+A small web UI for the display's day-to-day settings — no app, no build step.
+Because AWTRIX sends no CORS headers, a browser can't call it cross-origin, so
+`panel/awtrix_panel.py` **serves the page and proxies `/api/*`** to the device
+(stdlib only). `panel/index.html` is the UI.
+
+```bash
+AWTRIX_IP=192.168.7.144 python3 panel/awtrix_panel.py     # then open http://localhost:8080
+```
+
+It gives you:
+- **In the rotation** — toggle Time / Date / Temperature / Humidity / Battery
+  (native-page toggles need a device restart; the panel says so and offers one)
+- **Pacing** — seconds per page (`ATIME`), text scroll speed (`SSPEED`), page-change
+  duration (`TSPEED`) and style (`TEFF`)
+- **Look** — brightness, auto-brightness, °C/°F, all-caps, buzzer
+- **Live screen mirror** of the 32×8 matrix (`/api/screen`)
+- **Actions** — 🤖 wave the robot, send a scrolling message, next page, screen
+  on/off, remove the calendar tile
+
+### Run it 24/7 on a Raspberry Pi
+
+Copy `panel/` to the Pi and install the systemd unit (the display IP is already
+set in it; fill in your Pi user + path):
+
+```bash
+scp -r panel/ pi@raspberrypi.local:~/awtrix-panel
+# on the Pi: edit __USER__/__DIR__ in deploy/awtrix-panel.service, then:
+sudo cp deploy/awtrix-panel.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now awtrix-panel
+# open http://raspberrypi.local:8080  (also reachable from your phone on the LAN)
+```
+
+The panel binds `0.0.0.0:8080` so you can control the clock from your phone — fine
+on a trusted home LAN.
 
 ## Known limitations
 

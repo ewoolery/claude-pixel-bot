@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --chassis:   #e4e6e3;
+    --panel:     #fbfbfa;
+    --bezel:     #0b0c0e;
+    --ink:       #16181a;
+    --ink-dim:   #6b7075;
+    --rule:      #ccd0cb;
+    --amber:     #ff9500;
+    --live:      #2e9e8f;
+    --dead:      #b9403a;
+
+    --label: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --body:  "IBM Plex Sans", system-ui, sans-serif;
+    --led:   "Silkscreen", "Courier New", monospace;
+
+    --r: 3px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 24px 20px 64px;
+    background: var(--chassis);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  /* ── screen-printed label treatment ─────────────────────────── */
+  .eyebrow {
+    font-family: var(--label);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  /* ── masthead ───────────────────────────────────────────────── */
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 20px;
+  }
+  .masthead h1 {
+    font-family: var(--label);
+    font-weight: 600;
+    font-size: 26px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .link-status { display: flex; align-items: center; gap: 7px; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ink-dim); flex: none;
+  }
+  .dot.up   { background: var(--live);  box-shadow: 0 0 7px var(--live); }
+  .dot.down { background: var(--dead); }
+
+  /* ── hero: the display itself ───────────────────────────────── */
+  .device {
+    background: var(--bezel);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 12px 28px -18px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);
+    margin-bottom: 8px;
+  }
+  #matrix {
+    display: grid;
+    grid-template-columns: repeat(32, 1fr);
+    gap: 2px;
+    aspect-ratio: 32 / 8;
+  }
+  #matrix i {
+    display: block;
+    border-radius: 50%;
+    background: #141619;
+    aspect-ratio: 1;
+  }
+  #matrix i.lit { box-shadow: 0 0 5px 1px currentColor; }
+
+  .device .fallback {
+    font-family: var(--led);
+    font-size: 11px;
+    color: #4a4f55;
+    text-align: center;
+    padding: 22px 0;
+    line-height: 1.9;
+  }
+
+  /* ── silkscreen readout under the device ────────────────────── */
+  .readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    font-family: var(--led);
+    font-size: 10px;
+    color: var(--ink-dim);
+    padding: 0 4px;
+    margin-bottom: 30px;
+  }
+  .readout b { color: var(--ink); font-weight: normal; }
+
+  /* ── cards ──────────────────────────────────────────────────── */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 16px 18px 18px;
+  }
+  .card > .eyebrow {
+    display: block;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .card .hint {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    margin: 14px 0 0;
+  }
+
+  /* ── switch rows ────────────────────────────────────────────── */
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 34px;
+  }
+  .row + .row { border-top: 1px solid #eceeea; }
+  .row > span { transition: color .15s, opacity .15s; }
+  .row.off > span { color: var(--ink-dim); opacity: .65; }
+
+  .sw {
+    position: relative;
+    flex: none;
+    width: 40px; height: 22px;
+    border-radius: 11px;
+    border: 1px solid var(--rule);
+    background: #e9ebe8;
+    cursor: pointer;
+    padding: 0;
+    transition: background .16s, border-color .16s;
+  }
+  .sw::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.28);
+    transition: transform .16s;
+  }
+  .sw[aria-checked="true"] { background: var(--live); border-color: var(--live); }
+  .sw[aria-checked="true"]::after { transform: translateX(18px); }
+
+  /* ── sliders ────────────────────────────────────────────────── */
+  .field { padding: 9px 0; }
+  .field + .field { border-top: 1px solid #eceeea; }
+  .field header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 7px;
+  }
+  .field .val {
+    font-family: var(--led);
+    font-size: 11px;
+    color: var(--ink);
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 22px;
+    background: transparent;
+    cursor: pointer;
+    display: block;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 3px; background: var(--rule); border-radius: 2px;
+  }
+  input[type=range]::-moz-range-track {
+    height: 3px; background: var(--rule); border-radius: 2px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 15px; height: 15px;
+    margin-top: -6px;
+    border-radius: 50%;
+    background: var(--ink);
+    border: 3px solid var(--panel);
+    box-shadow: 0 0 0 1px var(--ink);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: var(--ink);
+    border: 3px solid var(--panel);
+    box-shadow: 0 0 0 1px var(--ink);
+  }
+
+  select {
+    font-family: var(--body);
+    font-size: 14px;
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 5px 8px;
+  }
+
+  /* ── buttons ────────────────────────────────────────────────── */
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button.act {
+    font-family: var(--label);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--ink);
+    border-radius: var(--r);
+    padding: 8px 13px;
+    cursor: pointer;
+    transition: background .13s, color .13s;
+  }
+  button.act:hover { background: var(--ink); color: #fff; }
+  button.act.warm { border-color: var(--amber); }
+  button.act.warm:hover { background: var(--amber); border-color: var(--amber); color: var(--bezel); }
+
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  /* ── reboot notice ──────────────────────────────────────────── */
+  .notice {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: #fff6e8;
+    border-left: 3px solid var(--amber);
+    font-size: 13px;
+  }
+  .notice.show { display: flex; }
+
+  /* ── toast ──────────────────────────────────────────────────── */
+  #toast {
+    position: fixed;
+    left: 50%; bottom: 20px;
+    transform: translate(-50%, 130%);
+    max-width: min(520px, calc(100vw - 32px));
+    background: var(--bezel);
+    color: #f4f4f3;
+    font-size: 13.5px;
+    padding: 11px 16px;
+    border-radius: var(--r);
+    box-shadow: 0 10px 30px -12px rgba(0,0,0,.6);
+    transition: transform .22s ease-out;
+    z-index: 9;
+  }
+  #toast.show { transform: translate(-50%, 0); }
+  #toast.bad { border-left: 3px solid var(--dead); }
+
+  /* ── message row ────────────────────────────────────────────── */
+  .msgrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  input[type=text] {
+    flex: 1; min-width: 0;
+    font: inherit; color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 8px 10px;
+  }
+  input[type=color] {
+    width: 34px; height: 34px; padding: 2px; flex: none;
+    border: 1px solid var(--rule); border-radius: var(--r);
+    background: #fff; cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <h1>Pixel clock</h1>
+    <div class="link-status">
+      <span class="dot" id="link-dot"></span>
+      <span class="eyebrow" id="link-text">connecting</span>
+    </div>
+  </div>
+
+  <!-- hero: live mirror of the 32×8 matrix -->
+  <div class="device">
+    <div id="matrix" hidden></div>
+    <div class="fallback" id="matrix-fallback">
+      no live preview<br>
+      <span style="color:#33383d">the device isn't answering /api/screen</span>
+    </div>
+  </div>
+  <div class="readout" id="readout">
+    <span>batt <b>—</b></span>
+    <span>light <b>—</b></span>
+    <span>wifi <b>—</b></span>
+    <span>showing <b>—</b></span>
+    <span>fw <b>—</b></span>
+  </div>
+
+  <div class="cards">
+
+    <!-- ── what's in the rotation ─────────────────────────────── -->
+    <section class="card">
+      <span class="eyebrow">In the rotation</span>
+      <div id="apps"></div>
+      <div class="notice" id="reboot-notice">
+        <span>Turning pages on or off needs a restart to take effect.</span>
+        <button class="act warm" data-act="reboot">Restart</button>
+      </div>
+    </section>
+
+    <!-- ── pacing ─────────────────────────────────────────────── -->
+    <section class="card">
+      <span class="eyebrow">Pacing</span>
+
+      <div class="field">
+        <header>
+          <label for="atime">Seconds per page</label>
+          <span class="val" id="atime-val">—</span>
+        </header>
+        <input type="range" id="atime" min="2" max="30" step="1">
+      </div>
+
+      <div class="field">
+        <header>
+          <label for="sspeed">Text scroll speed</label>
+          <span class="val" id="sspeed-val">—</span>
+        </header>
+        <input type="range" id="sspeed" min="20" max="200" step="5">
+      </div>
+
+      <div class="field">
+        <header>
+          <label for="tspeed">Page change duration</label>
+          <span class="val" id="tspeed-val">—</span>
+        </header>
+        <input type="range" id="tspeed" min="0" max="1500" step="50">
+      </div>
+
+      <div class="field">
+        <header>
+          <label for="teff">Page change style</label>
+          <select id="teff"></select>
+        </header>
+      </div>
+
+      <p class="hint">Set page change duration to 0 for an instant cut. The
+        styles aren't named in the firmware — try them and keep what you like.</p>
+    </section>
+
+    <!-- ── brightness & format ────────────────────────────────── -->
+    <section class="card">
+      <span class="eyebrow">Look</span>
+
+      <div class="field">
+        <header>
+          <label for="bri">Brightness</label>
+          <span class="val" id="bri-val">—</span>
+        </header>
+        <input type="range" id="bri" min="1" max="255" step="1">
+      </div>
+
+      <div class="row" data-key="ABRI">
+        <span>Match the room</span>
+        <button class="sw" role="switch" aria-checked="false" aria-label="Match the room"></button>
+      </div>
+      <div class="row" data-key="CEL">
+        <span>Celsius</span>
+        <button class="sw" role="switch" aria-checked="false" aria-label="Celsius"></button>
+      </div>
+      <div class="row" data-key="UPPERCASE">
+        <span>All caps</span>
+        <button class="sw" role="switch" aria-checked="false" aria-label="All caps"></button>
+      </div>
+      <div class="row" data-key="SOUND">
+        <span>Buzzer</span>
+        <button class="sw" role="switch" aria-checked="false" aria-label="Buzzer"></button>
+      </div>
+
+      <p class="hint">The built-in thermometer reads several degrees high —
+        the electronics warm the case.</p>
+    </section>
+
+    <!-- ── actions / tie-ins ──────────────────────────────────── -->
+    <section class="card">
+      <span class="eyebrow">Actions</span>
+
+      <div class="btns">
+        <button class="act warm" data-act="wave">🤖 Wave the robot</button>
+        <button class="act" data-act="clear">Clear</button>
+        <button class="act" data-act="next">Next page</button>
+        <button class="act" data-act="power">Screen off</button>
+      </div>
+
+      <div class="field" style="margin-top:16px">
+        <header><label for="msg">Send a message</label></header>
+        <div class="msgrow">
+          <input type="text" id="msg" placeholder="Type something…" maxlength="80"
+                 autocomplete="off">
+          <input type="color" id="msg-col" value="#ff9500" aria-label="Message colour">
+          <button class="act" data-act="send">Send</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <span>Calendar tile</span>
+        <button class="act" data-act="calclear">Remove</button>
+      </div>
+
+      <p class="hint">"Wave the robot" plays the attention animation once. A
+        message scrolls across, then the clock returns.</p>
+    </section>
+
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  // Native pages. Keys are AWTRIX settings flags; all need a restart.
+  const PAGES = [
+    ["TIM",  "Time"],
+    ["DAT",  "Date"],
+    ["TEMP", "Temperature"],
+    ["HUM",  "Humidity"],
+    ["BAT",  "Battery"]
+  ];
+
+  const $ = (s) => document.querySelector(s);
+  let settings = {};
+  // AWTRIX has shipped ATIME in both seconds and milliseconds depending on
+  // firmware. Read whichever the device uses and write back in kind.
+  let atimeInMs = false;
+  let ready = false;
+
+  /* ── transport ──────────────────────────────────────────────── */
+  async function api(path, body) {
+    const opts = body === undefined
+      ? {}
+      : { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body) };
+    const res = await fetch("/api/" + path, opts);
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      throw new Error((data && data.error) || ("device returned " + res.status));
+    }
+    return data;
+  }
+
+  let toastTimer;
+  function toast(msg, bad) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.classList.toggle("bad", !!bad);
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+  }
+
+  function link(state, label) {
+    $("#link-dot").className = "dot " + state;
+    $("#link-text").textContent = label;
+  }
+
+  /* ── write a settings change ────────────────────────────────── */
+  async function put(patch, note) {
+    try {
+      await api("settings", patch);
+      Object.assign(settings, patch);
+      if (note) toast(note);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  /* ── live matrix mirror ─────────────────────────────────────── */
+  const cells = [];
+  (function buildMatrix() {
+    const grid = $("#matrix");
+    for (let i = 0; i < 256; i++) {
+      const cell = document.createElement("i");
+      grid.appendChild(cell);
+      cells.push({ el: cell, last: -1 });
+    }
+  })();
+
+  async function pollScreen() {
+    try {
+      const px = await api("screen");
+      if (!Array.isArray(px) || px.length !== 256) throw new Error("bad shape");
+      $("#matrix").hidden = false;
+      $("#matrix-fallback").style.display = "none";
+      for (let i = 0; i < 256; i++) {
+        const v = px[i] | 0;
+        const c = cells[i];
+        if (c.last === v) continue;
+        c.last = v;
+        if (v === 0) {
+          c.el.className = "";
+          c.el.style.color = "";
+          c.el.style.background = "";
+        } else {
+          const hex = "#" + v.toString(16).padStart(6, "0");
+          c.el.className = "lit";
+          c.el.style.color = hex;
+          c.el.style.background = hex;
+        }
+      }
+    } catch {
+      $("#matrix").hidden = true;
+      $("#matrix-fallback").style.display = "";
+    }
+  }
+
+  /* ── status line ────────────────────────────────────────────── */
+  async function pollStats() {
+    try {
+      const s = await api("stats");
+      link("up", "connected");
+      const bits = [
+        ["batt",    (s.bat ?? "—") + "%"],
+        ["light",   (s.lux ?? "—") + " lux"],
+        ["wifi",    (s.wifi_signal ?? "—") + " dbm"],
+        ["showing", s.app || "—"],
+        ["fw",      s.version || "—"]
+      ];
+      $("#readout").innerHTML = bits
+        .map(([k, v]) => `<span>${k} <b>${String(v)}</b></span>`)
+        .join("");
+    } catch (err) {
+      link("down", "no answer");
+    }
+  }
+
+  /* ── build the page toggles ─────────────────────────────────── */
+  function renderPages() {
+    $("#apps").innerHTML = PAGES.map(([key, label]) => `
+      <div class="row" data-page="${key}">
+        <span>${label}</span>
+        <button class="sw" role="switch" aria-checked="false" aria-label="${label}"></button>
+      </div>`).join("");
+  }
+
+  function paintSwitch(row, on) {
+    row.querySelector(".sw").setAttribute("aria-checked", on ? "true" : "false");
+    row.classList.toggle("off", !on);
+  }
+
+  /* ── load current state ─────────────────────────────────────── */
+  async function load() {
+    try {
+      settings = await api("settings") || {};
+      link("up", "connected");
+    } catch (err) {
+      link("down", "no answer");
+      toast("Can't read settings — " + err.message, true);
+      return;
+    }
+
+    // Pages
+    for (const [key] of PAGES) {
+      const row = $(`[data-page="${key}"]`);
+      if (row) paintSwitch(row, settings[key] !== false);
+    }
+
+    // Plain booleans
+    for (const row of document.querySelectorAll("[data-key]")) {
+      paintSwitch(row, !!settings[row.dataset.key]);
+    }
+
+    // Seconds per page — detect unit
+    let atime = Number(settings.ATIME ?? 7);
+    atimeInMs = atime > 100;
+    if (atimeInMs) atime = Math.round(atime / 1000);
+    setSlider("atime", clamp(atime, 2, 30), (v) => v + " s");
+
+    setSlider("sspeed", clamp(Number(settings.SSPEED ?? 100), 20, 200), (v) => v + " %");
+    setSlider("tspeed", clamp(Number(settings.TSPEED ?? 500), 0, 1500), (v) => v + " ms");
+    setSlider("bri", clamp(Number(settings.BRI ?? 120), 1, 255),
+              (v) => Math.round(v / 2.55) + " %");
+
+    const teff = $("#teff");
+    teff.innerHTML = Array.from({ length: 11 }, (_, i) =>
+      `<option value="${i}">Style ${i}</option>`).join("");
+    teff.value = String(Number(settings.TEFF ?? 1));
+
+    ready = true;
+  }
+
+  const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, isFinite(n) ? n : lo));
+
+  function setSlider(id, value, fmt) {
+    const el = $("#" + id);
+    el.value = String(value);
+    $("#" + id + "-val").textContent = fmt(value);
+    el._fmt = fmt;
+  }
+
+  /* ── wiring ─────────────────────────────────────────────────── */
+  renderPages();
+
+  // Switches
+  document.addEventListener("click", (ev) => {
+    const sw = ev.target.closest(".sw");
+    if (!sw || !ready) return;
+    const row = sw.closest(".row");
+    const on = sw.getAttribute("aria-checked") !== "true";
+    paintSwitch(row, on);
+
+    if (row.dataset.page) {
+      put({ [row.dataset.page]: on });
+      $("#reboot-notice").classList.add("show");
+    } else {
+      put({ [row.dataset.key]: on });
+    }
+  });
+
+  // Sliders — repaint instantly, write after the user settles.
+  let writeTimer;
+  for (const id of ["atime", "sspeed", "tspeed", "bri"]) {
+    const el = $("#" + id);
+    el.addEventListener("input", () => {
+      const v = Number(el.value);
+      $("#" + id + "-val").textContent = el._fmt(v);
+      if (!ready) return;
+      clearTimeout(writeTimer);
+      writeTimer = setTimeout(() => {
+        if (id === "atime") put({ ATIME: atimeInMs ? v * 1000 : v });
+        else if (id === "sspeed") put({ SSPEED: v });
+        else if (id === "tspeed") put({ TSPEED: v });
+        else if (id === "bri") put({ BRI: v, ABRI: false });
+      }, 260);
+      // Dragging brightness means you want manual control.
+      if (id === "bri") {
+        const row = $('[data-key="ABRI"]');
+        if (row) paintSwitch(row, false);
+      }
+    });
+  }
+
+  $("#teff").addEventListener("change", (ev) => {
+    if (ready) put({ TEFF: Number(ev.target.value) });
+  });
+
+  // Enter in the message box sends it.
+  $("#msg").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      $('[data-act="send"]').click();
+    }
+  });
+
+  // Action buttons
+  let screenOn = true;
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("[data-act]");
+    if (!btn) return;
+    const act = btn.dataset.act;
+    try {
+      if (act === "wave") {
+        const res = await fetch("/panel/wave", { method: "POST" });
+        if (!res.ok) throw new Error("wave failed");
+        toast("🤖 waving");
+      } else if (act === "clear") {
+        await api("notify/dismiss", {});
+        await api("indicator1", { color: "0" });
+        toast("Cleared");
+      } else if (act === "send") {
+        const t = $("#msg").value.trim();
+        if (!t) { toast("Type a message first", true); return; }
+        await api("notify", { text: t, color: $("#msg-col").value, duration: 8 });
+        $("#msg").value = "";
+        toast("Sent");
+      } else if (act === "calclear") {
+        await fetch("/api/custom?name=calendar", { method: "POST" }); // empty body removes it
+        toast("Calendar tile removed");
+      } else if (act === "next") {
+        await api("nextapp", {});
+      } else if (act === "power") {
+        screenOn = !screenOn;
+        await api("power", { power: screenOn });
+        btn.textContent = screenOn ? "Screen off" : "Screen on";
+      } else if (act === "reboot") {
+        await api("reboot", {});
+        $("#reboot-notice").classList.remove("show");
+        toast("Restarting — back in about 15 seconds");
+        link("down", "restarting");
+      }
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  /* ── go ─────────────────────────────────────────────────────── */
+  load();
+  pollStats();
+  pollScreen();
+  setInterval(pollStats, 4000);
+  setInterval(pollScreen, 500);
+})();
+</script>
+</body>
+</html>

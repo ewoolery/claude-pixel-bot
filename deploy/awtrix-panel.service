@@ -1,0 +1,32 @@
+[Unit]
+# Install on a Raspberry Pi (or any Linux box on the display's LAN):
+#   1. copy the panel/ folder to the Pi, e.g.  ~/awtrix-panel/
+#   2. edit __USER__ and __DIR__ below (AWTRIX_IP is already set to the device)
+#        __USER__  -> your Pi login (e.g. pi)
+#        __DIR__   -> the panel folder (e.g. /home/pi/awtrix-panel)
+#   3. sudo cp awtrix-panel.service /etc/systemd/system/
+#      sudo systemctl daemon-reload && sudo systemctl enable --now awtrix-panel
+#   4. open http://<pi-hostname>.local:8080
+Description=AWTRIX control panel
+Documentation=https://github.com/ewoolery/claude-pixel-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=AWTRIX_IP=192.168.7.144
+Environment=PORT=8080
+ExecStart=/usr/bin/python3 __DIR__/awtrix_panel.py
+Restart=always
+RestartSec=5
+
+# The panel only needs to read its own two files and talk to the LAN.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
