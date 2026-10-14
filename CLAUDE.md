@@ -86,3 +86,9 @@ calendar tile. Runs 24/7 on the Pi via systemd; manage with
   the Pi; the calendar job would need the same treatment.
 - **The Pi can't read the Mac's Calendar.** icalBuddy is macOS-only — a Pi-side
   calendar source must use the Google Calendar API.
+- **Sandbox vs. the wave's kill.** The wave is a detached loop that `clear`
+  stops by *signalling* it. Claude Code's Bash sandbox can block process
+  signalling/enumeration (`pgrep: Cannot get process list`), so `clear` dismisses
+  the notification but can't kill the loop → the wave wouldn't clear. Fixed by a
+  hard `PIXEL_BOT_WAVE_MAX` cap (default 20s) so the loop self-terminates
+  regardless. If the wave ever sticks: `pkill -f "pixel_bot.py (play|armed|tool-armed)"`.
