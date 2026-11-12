@@ -18,6 +18,12 @@ User=__USER__
 WorkingDirectory=__DIR__
 Environment=AWTRIX_IP=192.168.7.144
 Environment=PORT=8080
+# Notifier-mode auto-sleep: the matrix stays dark at rest, wakes for a robot
+# wave or calendar alert, and powers off PANEL_SLEEP_AFTER seconds after the
+# last notification. Set PANEL_SLEEP_ENABLED=0 to keep the display always on
+# (or toggle it live from the panel's "Sleep when idle" switch).
+Environment=PANEL_SLEEP_ENABLED=1
+Environment=PANEL_SLEEP_AFTER=120
 ExecStart=/usr/bin/python3 __DIR__/awtrix_panel.py
 Restart=always
 RestartSec=5

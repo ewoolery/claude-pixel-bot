@@ -29,6 +29,15 @@ PORT = int(os.environ.get("PORT", "8080"))
 BIND = os.environ.get("BIND", "0.0.0.0")
 TIMEOUT = float(os.environ.get("AWTRIX_TIMEOUT", "3"))
 
+# ── auto-sleep (notifier mode: dark at rest, wake for notifications) ──────
+SLEEP_AFTER = float(os.environ.get("PANEL_SLEEP_AFTER", "120"))  # seconds idle before powering the matrix off
+SLEEP_POLL = float(os.environ.get("PANEL_SLEEP_POLL", "3"))      # how often to check the display
+_sleep = {
+    "enabled": os.environ.get("PANEL_SLEEP_ENABLED", "0") == "1",
+    "last_notif": time.time(),
+    "powered": True,
+}
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(HERE, "index.html")
 FRAMES = os.path.join(HERE, "frames.json")
@@ -49,6 +58,16 @@ def _device_post(endpoint, payload=None):
         return False
 
 
+def _device_get(endpoint):
+    """GET from the display; returns parsed JSON or None. Never raises."""
+    try:
+        url = "http://{}/api/{}".format(AWTRIX_IP, endpoint)
+        with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
 def _play_wave(seconds=4.0):
     """Stream the waving-robot animation from frames.json for a few seconds,
     then hand the screen back — same host-driven approach as pixel_bot.py."""
@@ -67,6 +86,37 @@ def _play_wave(seconds=4.0):
         i += 1
         time.sleep(dwell)
     _device_post("notify/dismiss")
+
+
+def _sleep_watcher():
+    """Notifier-mode power management. The matrix stays OFF at rest; a
+    notification (robot wave or calendar alert — both carry wakeup:true) turns
+    it on; this powers it back off once no notification has been seen for
+    SLEEP_AFTER seconds. Entirely best-effort; the panel keeps serving if the
+    display is unreachable."""
+    acted = None   # last `enabled` value we reacted to, to handle on/off transitions
+    while True:
+        time.sleep(SLEEP_POLL)
+        enabled = _sleep["enabled"] and SLEEP_AFTER > 0
+
+        if enabled != acted:
+            if enabled:
+                _sleep["last_notif"] = time.time()        # grace period before first sleep
+            else:
+                _device_post("power", {"power": True})     # feature off → leave the screen on
+                _sleep["powered"] = True
+            acted = enabled
+        if not enabled:
+            continue
+
+        app = (_device_get("stats") or {}).get("app")
+        now = time.time()
+        if app == "Notification":                          # a notification is showing = activity
+            _sleep["last_notif"] = now
+            _sleep["powered"] = True                       # its wakeup:true turned the matrix on
+        if _sleep["powered"] and (now - _sleep["last_notif"]) >= SLEEP_AFTER:
+            _device_post("power", {"power": False})         # go dark
+            _sleep["powered"] = False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -137,6 +187,8 @@ class Handler(BaseHTTPRequestHandler):
             self._index()
         elif self.path == "/panel/config":
             self._send(200, json.dumps({"device": AWTRIX_IP}))
+        elif self.path == "/panel/sleep":
+            self._send(200, json.dumps({"enabled": _sleep["enabled"], "after": SLEEP_AFTER}))
         elif self.path.startswith("/api/"):
             self._proxy("GET")
         else:
@@ -146,6 +198,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/panel/wave":
             threading.Thread(target=_play_wave, daemon=True).start()
             self._send(200, json.dumps({"ok": True, "wave": "started"}))
+        elif self.path == "/panel/sleep":
+            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = json.loads(self.rfile.read(length)) if length else {}
+            except Exception:
+                body = {}
+            if "enabled" in body:
+                _sleep["enabled"] = bool(body["enabled"])
+            self._send(200, json.dumps({"enabled": _sleep["enabled"], "after": SLEEP_AFTER}))
         elif self.path.startswith("/api/"):
             self._proxy("POST")
         else:
@@ -164,7 +225,11 @@ def main():
     print("AWTRIX control panel")
     print("  display : http://{}".format(AWTRIX_IP))
     print("  panel   : http://{}:{}".format(BIND, PORT))
-    print("  (set AWTRIX_IP / PORT via environment)\n")
+    print("  auto-sleep: {} (after {:.0f}s idle)".format(
+        "on" if _sleep["enabled"] else "off", SLEEP_AFTER))
+    print("  (set AWTRIX_IP / PORT / PANEL_SLEEP_ENABLED via environment)\n")
+
+    threading.Thread(target=_sleep_watcher, daemon=True).start()
 
     try:
         ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

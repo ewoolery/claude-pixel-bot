@@ -68,8 +68,19 @@ a browser can't call it cross-origin). Controls page toggles (Time/Date/Temp/
 Humidity/Battery — native toggles need a device reboot), pacing (`ATIME` seconds
 /`SSPEED`/`TSPEED`/`TEFF`), brightness/look, a live screen mirror (`/api/screen`),
 and Actions: wave the robot, send a scrolling message, next/power, remove the
-calendar tile. Runs 24/7 on the Pi via systemd; manage with
-`sudo systemctl {status,restart} awtrix-panel` and `journalctl -u awtrix-panel -f`.
+calendar tile, and a **"Sleep when idle"** toggle. Runs 24/7 on the Pi via
+systemd; manage with `sudo systemctl {status,restart} awtrix-panel` and
+`journalctl -u awtrix-panel -f`.
+
+**Auto-sleep (notifier mode).** A background watcher (`_sleep_watcher`) keeps the
+matrix **dark at rest**; a robot wave or calendar alert (both carry
+`wakeup:true`) turns it on, and it powers back off `PANEL_SLEEP_AFTER` seconds
+(default 120) after the last notification. Verified that `wakeup:true` wakes the
+matrix from a `power:false` state. Config: `PANEL_SLEEP_ENABLED` (0/1),
+`PANEL_SLEEP_AFTER` (seconds), `PANEL_SLEEP_POLL`. Toggle live via `POST
+/panel/sleep {"enabled":bool}` or the panel switch. Note: the AWTRIX `/api/stats`
+`matrix` field does **not** reliably report the visual on/off state — don't use
+it to detect power; the watcher tracks power itself.
 
 ## Gotchas worth preserving
 

@@ -451,8 +451,14 @@
         <button class="act" data-act="calclear">Remove</button>
       </div>
 
+      <div class="row" id="sleep-row" style="margin-top:6px">
+        <span>Sleep when idle <span style="color:var(--ink-dim);font-weight:400">· dark until a notification</span></span>
+        <button class="sw" id="sleep-sw" role="switch" aria-checked="false" aria-label="Sleep when idle"></button>
+      </div>
+
       <p class="hint">"Wave the robot" plays the attention animation once. A
-        message scrolls across, then the clock returns.</p>
+        message scrolls across, then the clock returns. With "sleep when idle"
+        on, the screen goes dark and only lights up for notifications.</p>
     </section>
 
   </div>
@@ -649,11 +655,12 @@
   /* ── wiring ─────────────────────────────────────────────────── */
   renderPages();
 
-  // Switches
+  // Switches (device settings only — the sleep toggle has its own handler)
   document.addEventListener("click", (ev) => {
     const sw = ev.target.closest(".sw");
     if (!sw || !ready) return;
     const row = sw.closest(".row");
+    if (!row.dataset.page && !row.dataset.key) return;   // e.g. the sleep toggle
     const on = sw.getAttribute("aria-checked") !== "true";
     paintSwitch(row, on);
 
@@ -662,6 +669,29 @@
       $("#reboot-notice").classList.add("show");
     } else {
       put({ [row.dataset.key]: on });
+    }
+  });
+
+  // Sleep-when-idle toggle (panel-local state, not a device setting)
+  async function loadSleep() {
+    try {
+      const s = await (await fetch("/panel/sleep", { cache: "no-store" })).json();
+      paintSwitch($("#sleep-row"), !!s.enabled);
+    } catch { /* panel may be an older build without the endpoint */ }
+  }
+  $("#sleep-sw").addEventListener("click", async () => {
+    const on = $("#sleep-sw").getAttribute("aria-checked") !== "true";
+    paintSwitch($("#sleep-row"), on);
+    try {
+      await fetch("/panel/sleep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: on }),
+      });
+      toast(on ? "Sleep when idle: on" : "Sleep when idle: off");
+    } catch (err) {
+      toast(err.message, true);
+      paintSwitch($("#sleep-row"), !on);   // revert on failure
     }
   });
 
@@ -743,6 +773,7 @@
 
   /* ── go ─────────────────────────────────────────────────────── */
   load();
+  loadSleep();
   pollStats();
   pollScreen();
   setInterval(pollStats, 4000);

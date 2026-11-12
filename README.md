@@ -249,6 +249,9 @@ It gives you:
 - **Live screen mirror** of the 32×8 matrix (`/api/screen`)
 - **Actions** — 🤖 wave the robot, send a scrolling message, next page, screen
   on/off, remove the calendar tile
+- **Sleep when idle** (notifier mode) — a toggle that keeps the matrix dark at
+  rest and lets it wake only for notifications (robot wave / calendar alert),
+  powering off `PANEL_SLEEP_AFTER` seconds (default 120) after the last one
 
 ### Run it 24/7 on a Raspberry Pi
 
