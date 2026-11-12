@@ -36,7 +36,7 @@ Config via environment (all optional except the IP):
     PIXEL_BOT_IDLE_DELAY seconds idle before an armed (idle) wave fires (default 30)
     PIXEL_BOT_TOOL_DELAY seconds a tool may run before we assume it's blocked (default 5)
     PIXEL_BOT_WAVE_MAX   hard cap on wave length, seconds; the wave self-clears even
-                         if `clear` can't signal the player (default 20; 0 = no cap)
+                         if `clear` can't signal the player (default 8; 0 = no cap)
     PIXEL_BOT_FRAMES     path to frames.json              (default: alongside this file)
 
 The full-width robot is host-driven: AWTRIX plays animated GIFs only in an
@@ -64,7 +64,7 @@ TIMER_PIDFILE = PIDFILE + ".armed"                               # idle-countdow
 TOOL_PIDFILE  = PIDFILE + ".tool"                                # tool-blocked-countdown process
 IDLE_DELAY = float(os.environ.get("PIXEL_BOT_IDLE_DELAY", "30"))  # seconds before an armed idle wave fires
 TOOL_DELAY = float(os.environ.get("PIXEL_BOT_TOOL_DELAY", "5"))   # seconds a tool may run before we assume it's blocked on approval
-WAVE_MAX   = float(os.environ.get("PIXEL_BOT_WAVE_MAX", "20"))    # hard cap on wave length; self-clears even if `clear` can't signal the player (0 = no cap)
+WAVE_MAX   = float(os.environ.get("PIXEL_BOT_WAVE_MAX", "8"))     # hard cap on wave length; self-clears even if `clear` can't signal the player (0 = no cap)
 FRAMES   = os.environ.get(
     "PIXEL_BOT_FRAMES",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames.json"),

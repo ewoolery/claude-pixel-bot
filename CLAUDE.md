@@ -90,5 +90,5 @@ calendar tile. Runs 24/7 on the Pi via systemd; manage with
   stops by *signalling* it. Claude Code's Bash sandbox can block process
   signalling/enumeration (`pgrep: Cannot get process list`), so `clear` dismisses
   the notification but can't kill the loop → the wave wouldn't clear. Fixed by a
-  hard `PIXEL_BOT_WAVE_MAX` cap (default 20s) so the loop self-terminates
+  hard `PIXEL_BOT_WAVE_MAX` cap (default 8s) so the loop self-terminates
   regardless. If the wave ever sticks: `pkill -f "pixel_bot.py (play|armed|tool-armed)"`.
